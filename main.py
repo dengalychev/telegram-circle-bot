@@ -16,15 +16,6 @@ if not TOKEN:
     logger.error("BOT_TOKEN не найден!")
     exit(1)
 
-# === ПРОВЕРЯЕМ FFMPEG ===
-try:
-    result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
-    logger.info(f"✅ FFmpeg найден: {result.stdout.splitlines()[0]}")
-except Exception as e:
-    logger.error(f"❌ FFmpeg НЕ НАЙДЕН: {e}")
-    logger.error("Проверьте установку FFmpeg в Dockerfile")
-
-# === Health-сервер ===
 app_flask = Flask('')
 
 @app_flask.route('/')
@@ -35,9 +26,11 @@ def health():
 def run_http():
     app_flask.run(host='0.0.0.0', port=PORT)
 
-# === Команды бота ===
 async def start(update: Update, context):
-    await update.message.reply_text("👋 Отправь видео и ответь /circle")
+    await update.message.reply_text(
+        "👋 Привет! Я превращаю видео в кружочки!\n\n"
+        "Отправь видео, затем ответь на него /circle"
+    )
 
 async def circle(update: Update, context):
     reply = update.message.reply_to_message
@@ -53,15 +46,11 @@ async def circle(update: Update, context):
         await file.download_to_drive("input.mp4")
         logger.info("Видео скачано")
         
-        # Проверяем, существует ли input.mp4
-        if not os.path.exists("input.mp4"):
-            await update.message.reply_text("❌ Не удалось скачать видео")
-            return
-        
-        # Команда FFmpeg
+        # ИСПРАВЛЕННАЯ команда FFmpeg
+        # crop=min(iw,ih):min(iw,ih) -> crop='min(iw,ih):min(iw,ih)'
         cmd = [
             "ffmpeg", "-i", "input.mp4",
-            "-vf", "crop=min(iw,ih):min(iw,ih),scale=480:480",
+            "-vf", "crop='min(iw,ih):min(iw,ih)',scale=480:480",
             "-t", "60",
             "-c:v", "libx264", "-preset", "fast", "-crf", "23",
             "-c:a", "aac", "-b:a", "128k",
@@ -69,20 +58,15 @@ async def circle(update: Update, context):
             "circle.mp4", "-y"
         ]
         
-        logger.info(f"Запуск FFmpeg: {' '.join(cmd)}")
+        logger.info(f"Запуск FFmpeg")
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode != 0:
             logger.error(f"FFmpeg ошибка: {result.stderr}")
-            await update.message.reply_text(f"❌ Ошибка конвертации: {result.stderr[:200]}")
+            await update.message.reply_text(f"❌ Ошибка: {result.stderr[:200]}")
             return
         
-        logger.info("FFmpeg завершил успешно")
-        
-        # Проверяем, создался ли circle.mp4
-        if not os.path.exists("circle.mp4"):
-            await update.message.reply_text("❌ Файл не создался")
-            return
+        logger.info("FFmpeg завершил работу")
         
         # Отправляем кружочек
         with open("circle.mp4", "rb") as f:
@@ -91,16 +75,14 @@ async def circle(update: Update, context):
         await update.message.reply_text("✅ Готово!")
         
     except Exception as e:
-        logger.error(f"Ошибка: {e}", exc_info=True)
+        logger.error(f"Ошибка: {e}")
         await update.message.reply_text(f"❌ Ошибка: {str(e)[:200]}")
     
     finally:
         for f in ["input.mp4", "circle.mp4"]:
             if os.path.exists(f):
                 os.remove(f)
-                logger.info(f"Удалён файл: {f}")
 
-# === Запуск ===
 def main():
     # HTTP сервер
     http_thread = Thread(target=run_http, daemon=True)
@@ -112,7 +94,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("circle", circle))
     
-    logger.info("✅ Бот запущен!")
+    logger.info("✅ Бот успешно запущен!")
     app.run_polling(allowed_updates=["message"])
 
 if __name__ == "__main__":
