@@ -1,47 +1,55 @@
 import os
 import subprocess
 import asyncio
-from telegram import Update
-from telegram.ext import Application, CommandHandler
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import FSInputFile
+from aiogram.filters import Command
 
-TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = os.getenv('BOT_TOKEN')
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
 
-async def start(update: Update, context):
-    await update.message.reply_text("Отправь видео и ответь /circle")
+@dp.message(Command('start'))
+async def start(message: types.Message):
+    await message.answer(
+        "👋 Привет! Я превращаю видео в кружочки!\n\n"
+        "Просто отправь мне видео, затем ответь на него командой /circle"
+    )
 
-async def circle(update: Update, context):
-    reply = update.message.reply_to_message
-    if not reply or not reply.video:
-        await update.message.reply_text("❌ Ответь на видео")
+@dp.message(Command('circle'))
+async def to_circle(message: types.Message):
+    if not message.reply_to_message or not message.reply_to_message.video:
+        await message.answer("❌ Ответь на видео командой /circle")
         return
     
-    await update.message.reply_text("⏳ Конвертирую...")
+    video = message.reply_to_message.video
+    input_file = await bot.download(video.file_id)
     
-    file = await reply.video.get_file()
-    await file.download_to_drive("input.mp4")
+    output_path = "circle_video.mp4"
     
     cmd = [
-        "ffmpeg", "-i", "input.mp4",
+        "ffmpeg", "-i", "pipe:0",
         "-vf", "crop=min(iw\\,ih):min(iw\\,ih),scale=480:480",
-        "-t", "60", "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-        "-c:a", "aac", "-b:a", "128k", "circle.mp4", "-y"
+        "-t", "60",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "128k",
+        output_path
     ]
-    subprocess.run(cmd)
     
-    with open("circle.mp4", "rb") as f:
-        await update.message.reply_video_note(f.read())
+    await message.answer("⏳ Конвертирую в кружочек...")
     
-    os.remove("input.mp4")
-    os.remove("circle.mp4")
+    process = await asyncio.create_subprocess_exec(
+        *cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    await process.communicate(input=input_file.read())
+    
+    result = FSInputFile(output_path)
+    await bot.send_video_note(message.chat.id, result)
+    os.remove(output_path)
 
 async def main():
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("circle", circle))
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    await asyncio.Event().wait()
+    print("✅ Бот запущен!")
+    await dp.start_polling(bot)
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     asyncio.run(main())
