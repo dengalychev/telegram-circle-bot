@@ -1,18 +1,30 @@
+# Используем официальный образ Python
 FROM python:3.11-slim
 
-WORKDIR /app
+# Устанавливаем переменную окружения, чтобы избежать интерактивных запросов
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Устанавливаем FFmpeg и yt-dlp
+# Обновляем списки пакетов и устанавливаем необходимые зависимости
+# curl и unzip нужны для установки Deno, ffmpeg - для конвертации видео
 RUN apt-get update && apt-get install -y \
+    curl \
+    unzip \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Копируем зависимости
+# Устанавливаем Deno (JavaScript-рантайм) через официальный скрипт
+RUN curl -fsSL https://deno.land/install.sh | sh
+
+# Добавляем Deno в PATH, чтобы он был доступен из командной строки
+ENV DENO_INSTALL="/root/.deno"
+ENV PATH="$DENO_INSTALL/bin:$PATH"
+
+# Устанавливаем зависимости Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем код
+# Копируем код бота
 COPY main.py .
 
-# Запускаем бота
+# Команда для запуска бота
 CMD ["python", "main.py"]
