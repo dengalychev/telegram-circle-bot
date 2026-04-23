@@ -116,7 +116,7 @@ async def menu_callback(update: Update, context):
     # Редактируем сообщение: удаляем кнопки, показываем запрос видео
     text = "🎬 Выбран формат: "
     text += "**кружочек**" if choice == "circle" else "**GIF**"
-    text += "\n\n📤 Отправь мне видео для конвертации:"
+    text += "\n\n📤 Отправь видео для конвертации:\n(или нажми «Отмена»)"
     
     # Убираем кнопки из предыдущего сообщения
     await query.edit_message_text(
@@ -124,16 +124,16 @@ async def menu_callback(update: Update, context):
         parse_mode="Markdown"
     )
     
-    # Отправляем дополнительное сообщение с подтверждением
+    # Отправляем дополнительное сообщение с кнопкой отмены
     await query.message.reply_text(
-        "⏳ Жду видео... Пришли его сюда:",
+        "⏳ Жду видео...",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Отмена", callback_data="cancel")]])
     )
     
     return WAITING_FOR_VIDEO
 
 async def cancel_callback(update: Update, context):
-    """Отмена операции"""
+    """Отмена операции - возвращаем меню"""
     query = update.callback_query
     await query.answer()
     
@@ -141,9 +141,15 @@ async def cancel_callback(update: Update, context):
     if user_id in user_choice:
         del user_choice[user_id]
     
-    await query.edit_message_text(
-        "❌ Операция отменена.\n\nВернуться в меню — /start"
+    # Удаляем сообщение с кнопкой отмены
+    await query.message.delete()
+    
+    # Отправляем новое меню
+    await query.message.reply_text(
+        "❌ Операция отменена.\n\n👇 Выбери действие:",
+        reply_markup=get_main_menu()
     )
+    
     return ConversationHandler.END
 
 async def handle_video(update: Update, context):
@@ -166,8 +172,11 @@ async def handle_video(update: Update, context):
     # Конвертируем
     success, error_msg = await convert_video(update, choice, video)
     
+    # Удаляем сообщение с кнопкой отмены (если есть)
+    if user_id in user_choice:
+        del user_choice[user_id]
+    
     if success:
-        # Удаляем сообщение о процессе
         await status_msg.delete()
         
         # Показываем меню для новых конвертаций
@@ -183,10 +192,6 @@ async def handle_video(update: Update, context):
             reply_markup=get_main_menu()
         )
     
-    # Очищаем выбор пользователя (можно конвертировать новое видео с новым выбором)
-    if user_id in user_choice:
-        del user_choice[user_id]
-    
     return ConversationHandler.END
 
 async def help_command(update: Update, context):
@@ -195,7 +200,7 @@ async def help_command(update: Update, context):
         "1. Напиши /start\n"
         "2. Нажми на кнопку с нужным форматом\n"
         "3. Отправь видео\n\n"
-        "📌 После конвертации меню появится снова!\n\n"
+        "📌 После конвертации или отмены меню появится снова!\n\n"
         "**Ограничения:**\n"
         "• Кружочек — до 60 секунд\n"
         "• GIF — до 30 секунд\n\n"
@@ -220,7 +225,7 @@ def main():
             WAITING_FOR_VIDEO: [
                 CallbackQueryHandler(cancel_callback, pattern="cancel"),
                 MessageHandler(filters.VIDEO, handle_video),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_video),  # Если отправят текст
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_video),
             ],
         },
         fallbacks=[CommandHandler("start", start), CommandHandler("help", help_command)],
