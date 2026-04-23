@@ -13,6 +13,13 @@ if not TOKEN:
     logger.error("BOT_TOKEN не найден!")
     exit(1)
 
+# Проверяем FFmpeg при запуске
+try:
+    result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
+    logger.info(f"FFmpeg version: {result.stdout.splitlines()[0]}")
+except Exception as e:
+    logger.error(f"FFmpeg не найден: {e}")
+
 logger.info("Бот запускается...")
 
 async def start(update: Update, context):
@@ -24,26 +31,51 @@ async def circle(update: Update, context):
         await update.message.reply_text("❌ Ответь на видео командой /circle")
         return
     
-    await update.message.reply_text("⏳ Конвертирую...")
+    await update.message.reply_text("⏳ Конвертирую... (может занять до 30 секунд)")
     
-    file = await reply.video.get_file()
-    await file.download_to_drive("input.mp4")
+    try:
+        # Скачиваем видео
+        file = await reply.video.get_file()
+        await file.download_to_drive("input.mp4")
+        logger.info("Видео скачано")
+        
+        # Конвертируем через FFmpeg
+        cmd = [
+            "ffmpeg", "-i", "input.mp4",
+            "-vf", "crop=min(iw,ih):min(iw,ih),scale=480:480",
+            "-t", "60",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            "circle.mp4", "-y"
+        ]
+        
+        logger.info(f"Запуск FFmpeg: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            logger.error(f"FFmpeg ошибка: {result.stderr}")
+            await update.message.reply_text(f"❌ Ошибка конвертации: {result.stderr[:200]}")
+            return
+        
+        logger.info("FFmpeg завершил работу")
+        
+        # Отправляем кружочек
+        with open("circle.mp4", "rb") as f:
+            await update.message.reply_video_note(video_note=f.read())
+        
+        await update.message.reply_text("✅ Готово!")
+        
+    except Exception as e:
+        logger.error(f"Ошибка: {e}", exc_info=True)
+        await update.message.reply_text(f"❌ Ошибка: {str(e)[:200]}")
     
-    cmd = [
-        "ffmpeg", "-i", "input.mp4",
-        "-vf", "crop=min(iw,ih):min(iw,ih),scale=480:480",
-        "-t", "60", "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-        "-c:a", "aac", "-b:a", "128k", "circle.mp4", "-y"
-    ]
-    
-    subprocess.run(cmd, check=True, capture_output=True)
-    
-    with open("circle.mp4", "rb") as f:
-        await update.message.reply_video_note(video_note=f.read())
-    
-    os.remove("input.mp4")
-    os.remove("circle.mp4")
-    await update.message.reply_text("✅ Готово!")
+    finally:
+        # Чистим временные файлы
+        for f in ["input.mp4", "circle.mp4"]:
+            if os.path.exists(f):
+                os.remove(f)
+                logger.info(f"Удалён файл: {f}")
 
 def main():
     app = Application.builder().token(TOKEN).build()
