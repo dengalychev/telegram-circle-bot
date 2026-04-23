@@ -2,13 +2,10 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Устанавливаем FFmpeg
+# Устанавливаем FFmpeg и yt-dlp
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
-
-# Проверяем установку FFmpeg (для логов сборки)
-RUN ffmpeg -version
 
 # Копируем зависимости
 COPY requirements.txt .
