@@ -4,7 +4,6 @@ import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -37,10 +36,10 @@ async def circle(update: Update, context):
         "-c:a", "aac", "-b:a", "128k", "circle.mp4", "-y"
     ]
     
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, capture_output=True)
     
     with open("circle.mp4", "rb") as f:
-        await update.message.reply_video_note(f.read())
+        await update.message.reply_video_note(video_note=f.read())
     
     os.remove("input.mp4")
     os.remove("circle.mp4")
