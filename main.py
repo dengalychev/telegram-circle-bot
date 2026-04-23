@@ -1,6 +1,5 @@
 import os
 import subprocess
-import asyncio
 import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler
@@ -47,17 +46,13 @@ async def circle(update: Update, context):
     os.remove("circle.mp4")
     await update.message.reply_text("✅ Готово!")
 
-async def main():
+def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("circle", circle))
     
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    
     logger.info("✅ Бот успешно запущен!")
-    await asyncio.Event().wait()
+    app.run_polling(allowed_updates=["message"])
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
