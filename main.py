@@ -1,6 +1,8 @@
 import os
 import subprocess
 import logging
+import asyncio
+import aiohttp
 from threading import Thread
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -8,6 +10,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 
 TOKEN = os.getenv("BOT_TOKEN")
 PORT = int(os.getenv("PORT", 10000))
+RENDER_URL = os.getenv("RENDER_EXTERNAL_URL", "https://telegram-circle-bot.onrender.com")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -29,6 +32,18 @@ def health():
 
 def run_http():
     app_flask.run(host='0.0.0.0', port=PORT)
+
+# === ФУНКЦИЯ САМОПИНГА ===
+async def ping_self():
+    """Каждые 10 минут пингует самого себя, чтобы не засыпать"""
+    while True:
+        await asyncio.sleep(600)  # 10 минут
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{RENDER_URL}/health", timeout=10) as resp:
+                    logger.info(f"✅ Самопинг: {resp.status}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка самопинга: {e}")
 
 # === КНОПКИ МЕНЮ ===
 def get_main_menu():
@@ -143,10 +158,17 @@ async def video_handler(update: Update, context):
             del user_choice[user_id]
 
 # === ЗАПУСК ===
-def main():
-    Thread(target=run_http, daemon=True).start()
+async def main():
+    # Запускаем HTTP сервер в отдельном потоке
+    http_thread = Thread(target=run_http, daemon=True)
+    http_thread.start()
     logger.info(f"✅ HTTP сервер на порту {PORT}")
     
+    # Запускаем задачу самопинга
+    asyncio.create_task(ping_self())
+    logger.info(f"✅ Самопинг запущен (каждые 10 минут к {RENDER_URL}/health)")
+    
+    # Telegram бот
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler, pattern="^(circle|gif)$"))
@@ -154,7 +176,14 @@ def main():
     app.add_handler(MessageHandler(filters.VIDEO, video_handler))
     
     logger.info("✅ Бот с кнопками запущен!")
-    app.run_polling(allowed_updates=["message", "callback_query"])
+    
+    # Запускаем polling
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    
+    # Держим бота запущенным
+    await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
